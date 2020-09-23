@@ -12,28 +12,63 @@ import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 @EnableWebSecurity
 public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
-    @Override
-    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.inMemoryAuthentication()
-                .withUser("err2083@github.com").password("{noop}password").authorities("USER")
-                .and()
-                .withUser("admin@github.com").password("{noop}password").authorities("USER", "ADMIN");
+
+//    // ## 1.
+//    @Override
+//    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+//        auth.inMemoryAuthentication()
+//                .withUser("err2083@github.com").password("{noop}password").authorities("USER")
+//                .and()
+//                .withUser("admin@github.com").password("{noop}password").authorities("USER", "ADMIN");
+//    }
+//
+//    @Override
+//    protected void configure(HttpSecurity http) throws Exception {
+//
+//        HttpSessionCsrfTokenRepository repo = new HttpSessionCsrfTokenRepository();
+//        repo.setSessionAttributeName("csrf_token");
+//        repo.setParameterName("csrf_token");
+//
+//        http.authorizeRequests()
+//                .antMatchers("/todos*").hasAuthority("USER")
+//                .antMatchers(HttpMethod.DELETE, "/todos*").hasAuthority("ADMIN")
+//                .and()
+//                .formLogin()
+//                .and()
+//                .csrf()
+//                .csrfTokenRepository(repo);
+//    }
+
+    // ## 2.
+    public SecurityConfig() {
+        super(true);
     }
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-
-        HttpSessionCsrfTokenRepository repo = new HttpSessionCsrfTokenRepository();
-        repo.setSessionAttributeName("csrf_token");
-        repo.setParameterName("csrf_token");
-
-        http.authorizeRequests()
-                .antMatchers("/todos*").hasAuthority("USER")
-                .antMatchers(HttpMethod.DELETE, "/todos*").hasAuthority("ADMIN")
+        http.securityContext()
                 .and()
-                .formLogin()
+                .exceptionHandling();
+
+        http.servletApi();
+
+        http.servletApi();
+
+        http.formLogin()
+                .loginPage("/login.jsp")
+                .defaultSuccessUrl("/study")
+                .failureUrl("login.jsp?error=true");
+
+        http.logout()
+                .logoutSuccessUrl("/logout-success.jsp")
                 .and()
-                .csrf()
-                .csrfTokenRepository(repo);
+                .headers();
+
+        http.anonymous()
+                .principal("guest")
+                .authorities("ROLE_GUEST");
+
+        http.rememberMe();
+
     }
 }
