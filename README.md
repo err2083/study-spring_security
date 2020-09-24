@@ -180,3 +180,139 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 ### 리멤버 미 기능
 이 메서드는 유저명, 패스워드, 리멤버 미 만료 시각, 개인키를 하나의 토큰으로 인코딩해서 유저 브라우저 쿠키에 저장합니다.
 그후 웹 애플리케이션에 재접속하면 이 토큰값을 가져와 유저를 자동 로그인 시킵니다.
+
+## 3. 유저 인증하기
+스프링 시큐리티에서는 하나 이상의 AuthenticationProvider(인증 공급자) 를 이용해 인증을 수행합니다.
+어느 하나의 공급자라도 실패를 반환하면 로그인할수 없게 됩니다.
+대부분의 인증 공급자는 유저 세부를 보관한 저장소(memory, RDBMS, LDAP) 에서 정보를 가져와 대조합니다.
+유저 세부를 저장할때는 암호화하여 저장하고, 이를 위해 스프링 시큐리티는 다양한 알고리즘(MD5, SHA)을 지원합니다.
+유저가 로그인할때마다 저장소에서 가져오면 애플리케이션 성능이 낮아집니다. 그래서 스프링 시큐리티는 이러한 오버헤드를 줄이고자
+로컬 메모리와 저장 공간에 캐시하는 기능을 제공합니다.
+
+### 인메모리 방식으로 유저 인증하기
+유저수가 적고, 정보를 수정할 일이 거의없는 경우에 괜찮은 방법입니다.
+imMemoryAuthentication() 메서드 다음에 한사람씩 연결하여 유저를 지정합니다.
+````java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.inMemoryAuthentication()
+                .withUser("err2083@github.com").password("{noop}password").authorities("USER")
+                .and()
+                .withUser("admin@github.com").password("{noop}password").authorities("USER", "ADMIN")
+                .and()
+                .withUser("starlight@github.com").password("{noop}unknown").disabled(true).authorities("USER");
+    }
+}
+````
+
+### DB 조회 결과에 따라 유저 조회하기
+스프링 시큐리티는 SQL을 실행하여 유저를 조회하는 기능을 지원합니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.jdbcAuthentication().dataSource(dataSource())
+               .usersByUsernameQuery("SELECT username, password FROM member WHERE username = ?")
+               .authoritiesByUsernameQuery("query");
+        }
+}
+```
+
+### 패스워드 암호화하기
+스프링 시큐리티는 패스워드를 단순 평문이 아닌 암호화로 저장하는 기능을 제공해줍니다.
+````java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Bean
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+        
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.jdbcAuthentication()
+               .passwordEncoder(passwordEncoder())
+               .dataSource(dataSource());
+        }
+}
+````
+
+### LDAP 저장소 조회 결과에 따라 유저 인증하기
+LDAP??
+
+### 유저 세부 캐시하기
+먼저 캐시기능을 제공하는 구현체를 선택하야합니다. 스프링에는 Ehcache가 기본으로 내장되어있어 클래스 패스 루트에
+ehcache.xml 을 작성해 사용할 수 있습니다.
+````xml
+<ehcache>
+    <diskStore path="java.io.tmpdir"/>
+
+    <defaultCache
+            maxElementsInMemory="1000"
+            eternal="false"
+            timeToIdleSeconds="120"
+            timeToLiveSeconds="120"
+            overflowToDisk="true"
+    />
+
+    <cache name="userCache"
+           maxElementsInMemory="100"
+           eternal="false"
+           timeToIdleSeconds="600"
+           timeToLiveSeconds="3600"
+           overflowToDisk="true"
+    />
+</ehcache>
+````
+기본 캐시와 유저 세뷰용 캐시를 각각 구성했습니다. 유저 세부용 캐시는 최대 100명의 유저를 캐시하며(maxElementsInMemory="100")
+이를 초과하면 디스크로 옮깁니다(overflowToDisk="true") 캐시유저는 10분 동안(timeToIdleSeconds="600") 사용이 없거나
+생성 후(timeToLiveSeconds="3600") 1시간이 지나면 만료됩니다.
+
+스프링 시큐리티는 ehCacheBasedUserCache와 스프링 캐시 추상체를 이용하는 SpringCacheBasedUserCache
+이렇게 두개의 UserCache 인터페이스 구현체를 제공합니다.
+먼저 캐시 매니저를 빈으로 등록합니다.
+```java
+@Configuration
+public class CacheConfig {
+
+    @Bean
+    public EhCacheCacheManager cacheManager() {
+        EhCacheCacheManager cacheManager = new EhCacheCacheManager();
+        cacheManager.setCacheManager(ehCacheManager().getObject());
+        return cacheManager;
+    }
+    
+    @Bean
+    public EhCacheManagerFactoryBean ehCacheManager() {
+        return new EhCacheManagerFactoryBean();
+    }
+}
+```
+캐시 매니저를 구성한다음 SpringCacheBasedUserCache 클래스를 구성합니다.
+```java
+@Configuration
+@EnableWebSecurity
+@RequiredArgsConstructor
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    private final CacheManager cacheManager;
+        
+    @Bean
+    public SpringCacheBasedUserCache userCache() throws Exception {
+        Cache cache = cacheManager.getCache("userCache");
+        return new SpringCacheBasedUserCache(cache);
+    }
+    
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.jdbcAuthentication()
+               .userCache(userCache());
+    }
+}
+```
+
