@@ -316,3 +316,225 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ```
 
+## 4 접근 통제 결정하기
+접근 통제 결정은 유저가 리소스에 접근 가능한지 판단하는 행위로 AccessDecisionManager 인터페이스를 구현한 접근
+통제 결정 관리자가 판단합니다.
+
+|접근 통제 결정 관리자|접근 허용 조건|
+|----------------|----------|
+|AffirmativeBased|하나의 거수기만 거수해도 허용|
+|ConsensusBased|거수기 전원이 만장일치해야 허용|
+|UnanimousBased|거수기 전원이 의견이 일치해야 허용|
+
+각 거수기는 AccessDecisionVoter 인터페이스를 구현하며 찬성, 반대, 기권 의사를 표명합니다.
+별도로 접근 통제 결정 관리자를 명시하지않으면 AffirmativeBased를 기본 접근 통제 결정 관리자로 임명하고
+다음 두 거수기를 구성합니다.
+* RoleVoter : 유저 롤을 기준으로 접근 허용 여부를 거수합니다. ROLE_접두어 로 시작하는 속성만 처리하며
+유저가 리소스 접근에 필요한 롤과 동일한 롤을 가지고 있으면 찬성, 하나라도 부족하면 반대, ROLE_ 로 시작하는 속성이 없으면
+기권표를 던집니다.
+* AuthenticatedVoter : 유저 인증 레벨을 기준으로 접근 허용 여부를 거수하며, 유저의 인증 레벨이 리소스 접근에 필요한
+레벨 보다 높으면 찬성합니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Bean
+    public AffirmativeBased accessDecisionManager() {
+        List<AccessDecisionVoter<?>> decisionVoters = Arrays.asList(new RoleVoter(), new AuthenticatedVoter());
+        return new AffirmativeBased(decisionVoters);
+    }
+    
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+            .accessDecisionManager(accessDecisionManager());
+    }
+}
+```
+
+기본 접근 통제 결정 관리자와 이에 딸린 거수기 만으로도 대부분의 인증 요건을 구현할수 있지만 부족할 경우 직접 만들어서 써야합니다.
+다음은 IP 주소에 따라 허용 여부를 거수하는 거수기 입니다.
+```java
+public class IpAddressVoter implements AccessDecisionVoter<Object> {
+
+    private static final String IP_PREFIX = "IP_";
+    private static final String IP_LOCAL_HOST = "IP_LOCAL_HOST";
+
+    @Override
+    public boolean supports(ConfigAttribute configAttribute) {
+        return (configAttribute.getAttribute() != null && configAttribute.getAttribute().startsWith(IP_PREFIX));
+    }
+
+    @Override
+    public boolean supports(Class<?> aClass) {
+        return true;
+    }
+
+    @Override
+    public int vote(Authentication authentication, Object o, Collection<ConfigAttribute> collection) {
+        if (!(authentication.getDetails() instanceof WebAuthenticationDetails)) {
+            return ACCESS_DENIED;
+        }
+        WebAuthenticationDetails details = (WebAuthenticationDetails) authentication.getDetails();
+        String address = details.getRemoteAddress();
+
+        int result = ACCESS_ABSTAIN;
+        for (ConfigAttribute config : collection) {
+            result = ACCESS_DENIED;
+            if (Objects.equals(IP_LOCAL_HOST, config.getAttribute())) {
+                if (address.equals("127.0.0.1") || address.equals("0:0:0:0:0:0:0:1")) {
+                    return ACCESS_GRANTED;
+                }
+            }
+        }
+
+        return result;
+    }
+}
+```
+이 거수기는 접두어 IP_로 시작하는 접근 속성만 대상으로 삼고 그중 유저의 IP 주소가 저 경우 일때 찬성, 그렇지 않으면 반대,
+없으면 넘어갑니다. 이렇게 작성한 거수기를 커스텀 접근 결정 관리자에 추가합니다.
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Bean
+    public AffirmativeBased accessDecisionManager() {
+        List<AccessDecisionVoter<?>> decisionVoters = 
+            Arrays.asList(new RoleVoter(), new AuthenticatedVoter(), new IpAddressVoter());
+        return new AffirmativeBased(decisionVoters);
+    }
+}
+```
+그리고 삭제 URL 매핑에 다음과 같이 접근 속성을 추가하면 됩니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+            .accessDecisionManager(accessDecisionManager())
+            .antMatchers(HttpMethod.DELETE, "/todos*")
+            .access("ADMIN,IP_LOCAL_HOST");
+    }
+}
+```
+
+### 표현식을 이용해 접근 통제 결정하기
+만일 더 정교하게 접근 통제 정책을 적용해야 한다면 SpEL(스프링 표현식 언어)을 사용합니다.
+스프링 시큐리티는 WebExpressionVoter 거수기를 거느린 접근 통제 결정 관리자를 다음과 같이 빈으로 자동 구성합니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Bean
+    public AffirmativeBased accessDecisionManager() {
+        List<AccessDecisionVoter<?>> decisionVoters = 
+            Arrays.asList(new WebExpressionVoter());
+        return new AffirmativeBased(decisionVoters);
+    }
+}
+```
+|표현식|설명|
+|----|---|
+|hasRole(role) / hasAuthority(authority) | 현재 유저가 주어진 롤 및 권한을 가지고 있으면 true|
+|hasAnyRole(role1, role2) / hasAnyAuthority(auth1, auth2) | 현재 유저가 주어진 롤 중 하나만 갖고 있으면 true|
+|hasIpAddress(ip-address) | 현재 유저 IP 주소가 주어진 IP 주소와 일치하면 true|
+|principal|현재 유저|
+|Authentication|스프링 시큐리티 인증 객체|
+|permitAll|항상 true|
+|denyAll|항상 false|
+|isAnonymous()|익명 유저면 true|
+|isRememberMe()|리멤버 미를 이용해 로그인 하면 true|
+|isAuthenticated()|익명 유저가 아니면 true|
+|isFullyAuthenticated()|익명 유저, 리멤버 미 유저 둘다 아니면 true|
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+            .antMatchers("/messageList*").hasAnyRole("USER", "GUEST")
+            .antMatchers("/messagePost*").hasRole("USER")
+            .antMatchers("/messageDelete*")
+            .access("hasRole('ROLE_ADMIN') or hasIpAddress('127.0.0.1') or hasIpAddress('0:0:0:0:0:0:0:1')");
+    }
+}
+```
+.access 이후 로직은 현재 유저가 ADMIN 롤을 가지고 있거나 로컬 에서 접근한 유저일 경우 삭제 권한을 부여한다는 의미 입니다.
+
+스프링 시큐리티는 또한 SecurityExpressionOperations 인터페이스 구현 클래스를 직접 만들어 표현식을 확장할수 있습니다.
+```java
+public class ExtendedWebSecurityExpressionRoot extends WebSecurityExpressionRoot {
+    public ExtendedWebSecurityExpressionRoot(Authentication a, FilterInvocation fi) {
+        super(a, fi);
+    }
+    public boolean localAccess() {
+        return hasIpAddress("127.0.0.1") || hasIpAddress("0:0:0:0:0:0:0:1");
+    }
+}
+```
+로컬 로그인 여부를 체크하는 localAccess() 메서드를 기본 구현체를 상속한 클래스에 추가했습니다.
+이제 이 클래스를 사용하기 위한 SecurityExpressionHandler 인터페이스 구현체를 생성하보겠습니다.
+```java
+public class ExtendedWebSecurityExpressionHandler extends DefaultWebSecurityExpressionHandler {
+    private AuthenticationTrustResolver trustResolver = new AuthenticationTrustResolverImpl();
+
+    @Override
+    protected SecurityExpressionOperations createSecurityExpressionRoot(Authentication authentication, FilterInvocation fi) {
+        ExtendedWebSecurityExpressionRoot root = new ExtendedWebSecurityExpressionRoot(authentication, fi);
+        root.setPermissionEvaluator(getPermissionEvaluator());
+        root.setTrustResolver(trustResolver);
+        root.setRoleHierarchy(getRoleHierarchy());
+        return root;
+    }
+
+    @Override
+    public void setTrustResolver(AuthenticationTrustResolver trustResolver) {
+        this.trustResolver = trustResolver;
+        super.setTrustResolver(trustResolver);
+    }
+}
+```
+이렇게 작성한 커스텀 표현식 핸들러를 expressionHandler() 메서드에 지정합니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+            .expressionHandler(new ExtendedWebSecurityExpressionHandler())
+            .antMatchers("/todos").hasAuthority("USER")
+            .antMatchers(HttpMethod.DELETE, "/todos*")
+            .access("hasRole(ROLE_ADMIN) or localAccess()");
+    }
+}
+```
+### 스프링 빈을 표현식에 넣어 접근 통제 결정하기
+앞서 설명했듯이 스프링 시큐리티는 클래스를 상속해 메서드를 오버라이드해 쓸 수도 있지만 표현식 내부에 커스텀 클래스를
+만들어 쓰는 편이 낫습니다. '@syntax' 형식으로 어느 빈이라도 불러 쓸수 있습니다.
+예를 들어 accessChecker 라는 빈을 구현한다면 accessChecker.hasLocalAccess(authentication) 표현식으로
+Authentication 객체를 받는 hasLocalAccess() 메서드를 표현식에서 호출할 수 있습니다.
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Bean
+    public AccessChecker accessChecker() {
+        return new AccessChecker();
+    }
+        
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+           .expressionHandler(new ExtendedWebSecurityExpressionHandler())
+           .antMatchers("/todos").hasAuthority("USER")
+           .antMatchers(HttpMethod.DELETE, "/todos*")
+           .access("hasRole(ROLE_ADMIN) or @accessChecker.hasLocalAccess(authentication)");
+        }
+}
+```

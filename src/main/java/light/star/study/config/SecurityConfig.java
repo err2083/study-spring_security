@@ -1,11 +1,18 @@
 package light.star.study.config;
 
+import light.star.study.checker.AccessChecker;
+import light.star.study.expression.ExtendedWebSecurityExpressionHandler;
+import light.star.study.voter.IpAddressVoter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.access.AccessDecisionVoter;
+import org.springframework.security.access.vote.AffirmativeBased;
+import org.springframework.security.access.vote.AuthenticatedVoter;
+import org.springframework.security.access.vote.RoleVoter;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -15,6 +22,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 
 import javax.sql.DataSource;
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -109,17 +118,66 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 //                .dataSource(dataSource());
 //    }
 
-    private final CacheManager cacheManager;
+//    private final CacheManager cacheManager;
+//
+//    @Bean
+//    public SpringCacheBasedUserCache userCache() throws Exception {
+//        Cache cache = cacheManager.getCache("userCache");
+//        return new SpringCacheBasedUserCache(cache);
+//    }
+//
+//    @Override
+//    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+//        auth.jdbcAuthentication()
+//                .userCache(userCache());
+//    }
+
+//    // # 4
+//    @Bean
+//    public AffirmativeBased accessDecisionManager() {
+//        List<AccessDecisionVoter<?>> decisionVoters =
+//                Arrays.asList(new RoleVoter(), new AuthenticatedVoter(), new IpAddressVoter());
+//        return new AffirmativeBased(decisionVoters);
+//    }
+//
+//    @Override
+//    protected void configure(HttpSecurity http) throws Exception {
+//        http.authorizeRequests()
+//                .accessDecisionManager(accessDecisionManager())
+//                .antMatchers(HttpMethod.DELETE, "/todos*")
+//                .access("ADMIN,IP_LOCAL_HOST");
+//    }
+
+//    @Override
+//    protected void configure(HttpSecurity http) throws Exception {
+//        http.authorizeRequests()
+//                .antMatchers("/messageList*").hasAnyRole("USER", "GUEST")
+//                .antMatchers("/messagePost*").hasRole("USER")
+//                .antMatchers("/messageDelete*")
+//                .access("hasRole('ROLE_ADMIN') or hasIpAddress('127.0.0.1') or hasIpAddress('0:0:0:0:0:0:0:1')");
+//    }
+
+
+//    @Override
+//    protected void configure(HttpSecurity http) throws Exception {
+//        http.authorizeRequests()
+//                .expressionHandler(new ExtendedWebSecurityExpressionHandler())
+//                .antMatchers("/todos").hasAuthority("USER")
+//                .antMatchers(HttpMethod.DELETE, "/todos*")
+//                .access("hasRole(ROLE_ADMIN) or localAccess()");
+//    }
 
     @Bean
-    public SpringCacheBasedUserCache userCache() throws Exception {
-        Cache cache = cacheManager.getCache("userCache");
-        return new SpringCacheBasedUserCache(cache);
+    public AccessChecker accessChecker() {
+        return new AccessChecker();
     }
 
     @Override
-    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.jdbcAuthentication()
-                .userCache(userCache());
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+                .expressionHandler(new ExtendedWebSecurityExpressionHandler())
+                .antMatchers("/todos").hasAuthority("USER")
+                .antMatchers(HttpMethod.DELETE, "/todos*")
+                .access("hasRole(ROLE_ADMIN) or @accessChecker.hasLocalAccess(authentication)");
     }
 }
