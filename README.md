@@ -538,3 +538,61 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
         }
 }
 ```
+
+## 5. 메서드 호출 보안하기
+스프링 시큐리티는 메서드 호출을 제공합니다. 구현 클래스에서 보안 대상 메서드에 @Secured, @PreAuthorize/@PostAuthorize,
+@PreFilter/@PostFilter 등의 애너테이션을 붙여 선언하고, 구성 클래스 레벨에 @EnableGlobalMethodSecurity를 붙이고
+securedEnabled 속성을 true로 설정하면 보안 모드로 작동합니다.
+
+### 애너테이션을 붙여 메서드 보안하기
+다음 코드와 같이 각각의 메서드에 @Secured를 붙이고 String[] 형 access 속성에 메서드별로 접근 허용 권한을 명시합니다.
+```java
+@Service
+public class SecurityServiceImpl implements SecurityService{
+    
+    @Override
+    @Secured({"ROLE_USER", "ROLE_GUEST"})
+    public List<String> getList() {
+        return null;
+    }
+
+    @Override
+    @Secured("ROLE_ADMIN")
+    public void saveSecurity() {
+
+    }
+}
+```
+
+### 애너테이션 + 표현식으로 메서드 보안하기
+URL 과 마찬가지로 좀 더 정교한 보안 규칙을 적용하고 싶다면 @PreAuthorize/@PostAuthorize 같은 애너테이션에 SpEL 기반의
+보안 표현식을 작성합니다. 이 두개의 애너테이션을 이용하려면 @EnableGlobalMethodSecurity 의 prePostEnabled 속성을
+true 로 설정합니다.
+```java
+@Service
+public class SecurityServiceImpl implements SecurityService{
+    
+    @Override
+    @PreAuthorize("hasAuthority('USER')")
+    public void deleteSecurity() {
+    }
+
+    @Override
+    @PostAuthorize("returnObject.owner == authentication.name")
+    public String get(Long id) {
+        return null;
+    }
+
+    @Override
+    @PostFilter("hasAuthority('Admin') or filterObject.owner == authentication.name")
+    public List<String> getAllList() {
+        return null;
+    }
+
+}
+```
+@PreAuthorize 는 메서드 호출 직전, @PostAuthrize 는 메서드 호출 직후 작동합니다. 또한 returnObject 를
+이용하여 다른 유저가 호출해 객체에 접근하는것을 막을수도 있습니다.
+@PreAuthorize/@PostAuthorize 가 예외를 던지는 거였다면 @PreFilter/@PostFilter 는 단순히 접근 권한이 없는
+요소의 입출력 변수만 필터링 합니다. 위 코드의 getAllList() 메서드는 Admin 권한은 모든 리스트를
+일반 유저는 자신만 조회할수 있게 하는 메서드 입니다. 단 이는 성능적인 문제가 있으므로 신중하게 사용해야합니다.
