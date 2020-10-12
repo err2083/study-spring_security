@@ -316,7 +316,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ```
 
-## 4 접근 통제 결정하기
+## 4. 접근 통제 결정하기
 접근 통제 결정은 유저가 리소스에 접근 가능한지 판단하는 행위로 AccessDecisionManager 인터페이스를 구현한 접근
 통제 결정 관리자가 판단합니다.
 
@@ -596,3 +596,51 @@ public class SecurityServiceImpl implements SecurityService{
 @PreAuthorize/@PostAuthorize 가 예외를 던지는 거였다면 @PreFilter/@PostFilter 는 단순히 접근 권한이 없는
 요소의 입출력 변수만 필터링 합니다. 위 코드의 getAllList() 메서드는 Admin 권한은 모든 리스트를
 일반 유저는 자신만 조회할수 있게 하는 메서드 입니다. 단 이는 성능적인 문제가 있으므로 신중하게 사용해야합니다.
+
+## 6. 뷰에서 보안 처리하기
+JSP 스크립트릿 (<% ... %>) 을 써서 스프링 시큐리티 API를 호출해 인증/인가 정보를 가져올 수도 있지만, 스프링 시큐리티가
+제공하는 보안 처리용 JSP를 사용하면 쉽게 콘텐츠를 조건별로 렌더링 할 수 있습니다.
+
+### 인증 정보 표시하기
+먼저 스프링 시큐리티 태그 라이브러리를 임포트 합니다.
+```jsp
+<%@ taglib prefix="sec" uri="http://www.springframework.org/security/tags">
+```
+\<sec:authentication\> 태그를 이용하면 현재 유저의 Authentication 객체를 가져올수 있어서 
+뷰에서 원하는 프로퍼티를 property 속성에 명시하는 식으로 렌더링 할 수 있습니다.
+예를 들 유저 주체명은 name 프로퍼티로 가져와 표시합니다.
+```jsp
+<h4>Todos for <sec:authentication property="name" /></h4>
+```
+또는 var 속성에 지정해서 변수처럼 쓸수 있습니다
+```jsp
+<sec:authentication property="authorities" var="authorities">
+<ul>
+<c:forEach item="${authorities}" var="authority">
+<li>${authority.authority}</li>
+</ul>
+```
+
+### 뷰 콘텐트를 조건부 렌더링 하기
+\<sec:authorize\> 태그를 이용하면면 유저 권한에 따라 뷰 콘텐츠를 조건별로 표시할 수 있습니다.
+```jsp
+<sec:authorize access="hasRole('ROLE_ADMIN') and hasRole("ROLE_USER")">
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
